@@ -1,0 +1,97 @@
+name: Continuous Integration
+concurrency: 
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+on:
+  push:
+    branches: '**'
+
+jobs:
+  event_file:
+    name: "Upload Event File"
+    runs-on: ubuntu-latest
+    steps:
+    - name: Upload
+      uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+      with:
+        name: Event File
+        path: ${{ github.event_path }}
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    - name: Set up JDKs ☕
+      uses: actions/setup-java@v3
+      with:
+        java-version: |
+          8
+          17
+          21
+        mvn-toolchain-id: |
+          JavaSE-1.8
+          JavaSE-17
+          JavaSE-20
+        distribution: 'temurin'
+    # - name: Set up Maven
+    #   uses: stCarolas/setup-maven@07fbbe97d97ef44336b7382563d66743297e442f # v4.5
+    #   with:
+    #     maven-version: 3.9.3
+    - name: Initialize Energy Estimation
+        uses: green-coding-berlin/eco-ci-energy-estimation@4eec5ab2253f0f13ce9dae785c06d9f8c88e6d44 # use hash or @vX here (See note below)
+        with:
+          task: start-measurement
+
+      - name: Build with Maven
+        run: mvn clean:clean compiler:compile -f pom.xml
+        working-directory: ${{github.workspace}}
+
+      - name: Build measurement
+        if: always()
+        uses: green-coding-berlin/eco-ci-energy-estimation@4eec5ab2253f0f13ce9dae785c06d9f8c88e6d44 # use hash or @vX here (See note below)
+        with:
+          task: get-measurement
+          label: 'Build measurement'
+
+      - name: Show Energy Results
+        if: always()
+        uses: green-coding-berlin/eco-ci-energy-estimation@4eec5ab2253f0f13ce9dae785c06d9f8c88e6d44 # use hash or @vX here (See note below)
+        id: total-measurement-step
+        with:
+          task: display-results
+
+      - name: Upload total energy data artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: total-energy-data
+          path: /tmp/eco-ci/total-data.json
+
+      - name: Upload lap energy data artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: lap-energy-data
+          path: /tmp/eco-ci/lap-data.json
+
+      - name: Upload pom.xml artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: pom.xml
+          path: pom.xml
+    # - name: Build with Maven 🏗️
+    #   run: |
+    #     mvn clean install --batch-mode -f org.eclipse.jdt.core.compiler.batch -DlocalEcjVersion=99.99
+    #     mvn -U clean verify --batch-mode --fail-at-end -Ptest-on-javase-20 -Pbree-libs -Papi-check -Djava.io.tmpdir=$WORKSPACE/tmp -Dproject.build.sourceEncoding=UTF-8 -Dtycho.surefire.argLine="--add-modules ALL-SYSTEM -Dcompliance=1.8,11,17,20 -Djdt.performance.asserts=disabled" -Dcbi-ecj-version=99.99
+    - name: Upload Test Results for Linux
+      if: always()
+      uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+      with:
+        name: test-results-linux
+        if-no-files-found: warn
+        path: |
+          ${{ github.workspace }}/**/target/surefire-reports/*.xml
